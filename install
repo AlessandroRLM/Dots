@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES="${DOTFILES:-$HOME/Dots}"
+STOW_FOLDERS="${STOW_FOLDERS:-zsh,kitty,nvim,zellij}"
+BREW_BIN="${BREW_BIN:-/home/linuxbrew/.linuxbrew/bin/brew}"
+
+cd "$DOTFILES"
+
+if [[ -f /etc/fedora-release ]]; then
+    for repo in fedora/repos/*.repo; do
+        sudo install -m 644 "$repo" /etc/yum.repos.d/
+    done
+    mapfile -t packages < fedora/packages.txt
+    sudo dnf install -y "${packages[@]}"
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker "$USER"
+    sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
+
+if [[ ! -x "$BREW_BIN" ]]; then
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+eval "$("$BREW_BIN" shellenv)"
+
+brew bundle check --file="$DOTFILES/Brewfile" || brew bundle install --file="$DOTFILES/Brewfile"
+
+if [[ -f /etc/fedora-release ]] && ! rpm -q bruno >/dev/null; then
+    bruno_rpm=$(curl -fsSL https://api.github.com/repos/usebruno/bruno/releases/latest \
+        | rg -o 'https://[^"]+_x86_64_linux\.rpm' | head -n 1)
+    sudo dnf install -y "$bruno_rpm"
+fi
+
+for folder in ${STOW_FOLDERS//,/ }; do
+    echo "stow $folder"
+    stow -R -t "$HOME" "$folder"
+done
